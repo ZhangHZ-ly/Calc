@@ -185,7 +185,7 @@ def dsd1(x, d, f0=0, subs=None):
                 f0s.append(-pm_coeffs1(func, nk, deg)[0] * t)
     return Add(Add(f0, *f0s).simplify(), *terms)
 
-def dsolve_pm1(rhs, x, h=True, f0=0, subs=None, _s=True):
+def dsolve_pm1(rhs, x, h=True, f0=0, subs=None):
     """
     integral of rhs with the initial value of f0 and the form of
 
@@ -196,7 +196,7 @@ def dsolve_pm1(rhs, x, h=True, f0=0, subs=None, _s=True):
     h (hyperbolic: True/False) parameter is still included
     for distinguishment of the product-to-sum principles.
     """
-    return dsd1(x, group_terms(rhs, x, h, _s), f0, subs)
+    return dsd1(x, group_terms(rhs, x, h), f0, subs)
 
 def dsd2(x, d, h=True, f0=0, df0=0, subs=None):
     """
@@ -231,7 +231,7 @@ def dsd2(x, d, h=True, f0=0, df0=0, subs=None):
     return Add(Add(f0, *f0s).simplify()*cos(subs),
                Add(df0, *df0s).simplify()*sin(subs), *terms)
 
-def dsolve_pm2(rhs, x, h=True, f0=0, df0=0, subs=None, _s=True):
+def dsolve_pm2(rhs, x, h=True, f0=0, df0=0, subs=None):
     """
     Special solution  to
 
@@ -245,7 +245,7 @@ def dsolve_pm2(rhs, x, h=True, f0=0, df0=0, subs=None, _s=True):
     The sign is identified by parameter 'h':
     True for '-' and False for '+'
     """
-    return dsd2(x, group_terms(rhs, x, h, _s), h, f0, df0, subs)
+    return dsd2(x, group_terms(rhs, x, h), h, f0, df0, subs)
 
 _pm1_cache = dict()
 def pm_coeffs1(func, nk, deg):
@@ -385,9 +385,10 @@ def v02(func, nk, deg):
     if nk == 1:
         if (func in (sinh, sin)) ^ (deg & 1):
             return S.Zero, coeffs[0]
+        return S.Zero, S.Zero
     if (func in (sinh, sin)) ^ (deg & 1):
-        return coeffs[0], S.Zero
-    c1 = nk * coeffs[0]
-    if deg > 0:
-        c1 += coeffs[1]
-    return S.Zero, c1
+        c1 = nk * coeffs[0]
+        if deg > 0:
+            c1 += coeffs[1]
+        return S.Zero, c1
+    return coeffs[0], S.Zero
