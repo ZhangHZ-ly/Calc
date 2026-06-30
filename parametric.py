@@ -1,3 +1,4 @@
+from sympy import arg
 from sympy.core.singleton import S
 from sympy.core.numbers import I
 from sympy.core.sympify import sympify
@@ -10,14 +11,18 @@ from sympy.core.function import _mexpand, expand_mul
 from sympy.functions.elementary.exponential import exp
 from sympy.concrete.summations import Sum
 from sympy.physics.quantum.operator import Operator, HermitianOperator
+from sympy.core.traversal import bottom_up
 from op_patterns.boson_pattern import BosonNum
 from sympy.physics.quantum.boson import BosonOp
 from sympy.physics.quantum.dagger import Dagger
 from perturb_eval import PF, PE
-from perturb_eval.dsolve_pm import group_terms, dsd1, dsd2
+from perturb_eval.dsolve_pm import group_terms, dsd1, dsd2, _ps
 from collections import defaultdict
 from itertools import product
 from functools import cached_property, cache, lru_cache
+import warnings
+
+warnings.simplefilter("once", UserWarning)
 
 _mcc_indices = tuple(Dummy(integer=True, nonnegative=True) for _ in range(2))
 @lru_cache(8)  # The number of terms EXPONENTIALLY EXPLODES!
@@ -591,32 +596,36 @@ class TWMSolver:
             if self.dc:
                 return _n2 - _n1 + (d-1) * _nm
             return _n1 - _n2 + d * _nm
-        new_terms = []
-        for term in Add.make_args(expr):
-            if isinstance(term, Mul):
-                other = []
+        def combine_n(expr):
+            if expr.is_Add and any(any(isinstance(f, MultimodeNum)
+                                       for f in Mul.make_args(arg))
+                                   for arg in expr.args):
+                r = expr.replace(MultimodeNum, mmn_d).replace(MultimodeNum2,
+                                                              lambda *args: _n2+args[-1]*_nm)
+                c_m = r.subs({_n2: 0})
+                c = c_m.subs({_nm: 0})
+                c_n2 = ((r.subs({_nm: 0}) - c).expand() / _n2).doit()
+                d =(((c_m - c) / _nm).expand() / c_n2).doit()
+                # non-integer displacement is also legal here
+                if d.is_number:
+                    expr = (c_n2 * _n2 + c).factor().subs({_n1: MultimodeNum(a_s.name),
+                                                           _n2: MultimodeNum2(n1, n2, not self.dc, d)})
+                else:
+                    warnings.warn('Failed to combine the weak-field multimode number operators')
+            if expr.is_Mul:
                 n_part = []
-                for arg in Mul.make_args(term.subs({self.nd: _nd})):
-                    if arg.has(MultimodeNum) and arg.has(n1) and arg.has(n2):
-                        r = expand_mul(arg.replace(MultimodeNum, mmn_d)
-                                       .replace(MultimodeNum2, lambda *args: _n2+args[-1]*_nm))
-                        c_m = r.subs({_n2: 0})
-                        c = c_m.subs({_nm: 0})
-                        c_n2 = ((r.subs({_nm: 0}) - c) / _n2).doit()
-                        d = (((c_m - c) / _nm) / c_n2).doit()
-                        # non-integer displacement is also legal here
-                        if d.is_number:
-                            arg = (c_n2 * _n2 + c).factor().subs({_n1: MultimodeNum(a_s.name),
-                                                                  _n2: MultimodeNum2(n1, n2, not self.dc, d)})
+                other = []
+                for arg in Mul.make_args(expr.subs({self.nd: _nd})):
                     if arg.has(_nd):
                         n_part.append(arg)
                     else:
                         other.append(arg)
-                new_terms.append(Mul(*other, Mul(*n_part).subs({_nd: self.nd})))
-            else:
-                new_terms.append(term)
-        return Add(*new_terms)
+                expr = Mul(*other, Mul(*n_part).subs({_nd: self.nd}))
 
+            expr = _ps(expr)
+            return expr
+        return bottom_up(expr, combine_n)
+                            
     def get_sol(self, order: int):
         if order < -1:
             raise ValueError('The order should be at least -1')
@@ -716,3 +725,19 @@ class TWMSolver:
             for k, v in term_grouped.items():
                 grouped[k].append(Mul(Add(*v), *coeffs))
         return grouped
+
+def sep_weak(expr):
+    """
+    Separate the weak field multimode number operators from the given expr
+    """
+    result = dict()
+    for term in Add.make_args(expr):
+        other = []
+        mmn = []
+        for factor in Mul.make_args(term):
+            if isinstance(factor, (MultimodeNum, MultimodeNum2)):
+                mmn.append(factor)
+            else:
+                other.append(factor)
+        result[tuple(mmn)] = Mul(*other)
+    return result
